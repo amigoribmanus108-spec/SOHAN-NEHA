@@ -5,115 +5,108 @@ const vm = require("vm");
 
 module.exports.config = {
   name: "install",
-  version: "3.0.0",
+  version: "4.0.0",
   hasPermssion: 2,
   credits: "SOHAN AHMED",
-  description: "Auto reply install system",
+  description: "Auto Reload Command Installer",
   commandCategory: "System",
-  usages: "reply code with install filename.js",
+  usages: "[file.js code/link]",
   cooldowns: 0
 };
 
-const loadModule = (nameModule) => {
+const loadCommand = (moduleName) => {
   try {
-
-    const modulePath = __dirname + "/" + nameModule + ".js";
+    const modulePath = path.join(__dirname, moduleName + ".js");
 
     delete require.cache[require.resolve(modulePath)];
 
     const command = require(modulePath);
 
     if (!command.config || !command.run)
-      throw new Error("Invalid module");
+      throw new Error("Invalid command structure");
 
     global.client.commands.delete(command.config.name);
 
     global.client.eventRegistered =
       global.client.eventRegistered.filter(
-        item => item != command.config.name
+        item => item !== command.config.name
       );
 
     global.client.commands.set(command.config.name, command);
 
     return true;
-
   } catch (e) {
     console.log(e);
     return false;
   }
 };
 
-const unloadModule = (nameModule) => {
+module.exports.run = async ({ api, event, args }) => {
+  const { threadID, messageID, messageReply } = event;
 
-  global.client.commands.delete(nameModule);
-
-  global.client.eventRegistered =
-    global.client.eventRegistered.filter(
-      item => item !== nameModule
-    );
-};
-
-module.exports.run = async function ({ api, event, args }) {
-
-  const { threadID, messageID, type, messageReply } = event;
-
-  // DELETE SYSTEM
-  if (args[0] == "del") {
-
-    const file = args[1];
-
-    if (!file || !file.endsWith(".js")) {
-      return api.sendMessage(
-        "❌ Please enter valid file name",
-        threadID,
-        messageID
-      );
-    }
-
-    const filePath = path.join(__dirname, file);
-
-    if (!fs.existsSync(filePath)) {
-      return api.sendMessage(
-        "⚠️ File not found",
-        threadID,
-        messageID
-      );
-    }
-
-    unloadModule(file.replace(".js", ""));
-
-    fs.unlinkSync(filePath);
-
+  if (!args[0]) {
     return api.sendMessage(
-`╔════❖ DELETE SUCCESS ❖════╗
-
-🗑️ File Deleted Successfully
-
-📁 File:
-${file}
-
-━━━━━━━━━━━━━━━━━━
-👑 OWNER : SOHAN AHMED
-╚════════════════╝`,
+      "⚠️ Usage:\n/install cmd.js + reply code\n/install cmd.js code\n/install cmd.js link",
       threadID,
       messageID
     );
   }
 
-  // INSTALL SYSTEM
   const fileName = args[0];
 
-  if (!fileName || !fileName.endsWith(".js")) {
+  if (!fileName.endsWith(".js")) {
     return api.sendMessage(
-      "⚠️ Example:\ninstall cmd.js",
+      "❌ Only .js file allowed!",
       threadID,
       messageID
     );
   }
 
-  if (type != "message_reply") {
+  let code = "";
+
+  // REPLY CODE
+  if (messageReply && messageReply.body) {
+    code = messageReply.body;
+  }
+
+  // ARG CODE / LINK
+  else if (args.slice(1).join(" ")) {
+    const input = args.slice(1).join(" ");
+
+    // LINK
+    if (/^(http|https):\/\//.test(input)) {
+      try {
+        const res = await axios.get(input);
+        code = res.data;
+      } catch {
+        return api.sendMessage(
+          "❌ Failed to fetch code!",
+          threadID,
+          messageID
+        );
+      }
+    }
+
+    // DIRECT CODE
+    else {
+      code = input;
+    }
+  }
+
+  else {
     return api.sendMessage(
-      "⚠️ Please reply to command code",
+      "❌ No code found!",
+      threadID,
+      messageID
+    );
+  }
+
+  // SYNTAX CHECK
+  try {
+    new vm.Script(code);
+  } catch (err) {
+    return api.sendMessage(
+      "❌ Syntax Error:\n" + err.message,
       threadID,
       messageID
     );
@@ -121,94 +114,24 @@ ${file}
 
   const filePath = path.join(__dirname, fileName);
 
-  if (fs.existsSync(filePath)) {
-    return api.sendMessage(
-      "⚠️ File already exists",
-      threadID,
-      messageID
-    );
-  }
-
-  let code = messageReply.body;
-
-  // LINK SUPPORT
-  if (/^(http|https):\/\//.test(code.trim())) {
-
-    try {
-
-      const response = await axios.get(code.trim());
-
-      code = response.data;
-
-    } catch {
-
-      return api.sendMessage(
-        "❌ Failed to download code",
-        threadID,
-        messageID
-      );
-    }
-  }
-
-  // CHECK SYNTAX
-  try {
-
-    new vm.Script(code);
-
-  } catch (err) {
-
-    return api.sendMessage(
-`╔════❖ SYNTAX ERROR ❖════╗
-
-❌ ${err.message}
-
-━━━━━━━━━━━━━━━━━━
-⚡ INSTALL FAILED
-╚════════════════╝`,
-      threadID,
-      messageID
-    );
-  }
-
-  // SAVE FILE
+  // AUTO SAVE
   fs.writeFileSync(filePath, code, "utf8");
 
-  // LOAD MODULE
+  // AUTO RELOAD
   const moduleName = fileName.replace(".js", "");
 
-  const loaded = loadModule(moduleName);
+  const loaded = loadCommand(moduleName);
 
   if (!loaded) {
-
     return api.sendMessage(
-`╔════❖ INSTALL FAILED ❖════╗
-
-⚠️ File Saved But Not Loaded
-
-📁 ${fileName}
-
-━━━━━━━━━━━━━━━━━━
-👑 SOHAN AHMED
-╚════════════════╝`,
+      "⚠️ Saved but Reload Failed!",
       threadID,
       messageID
     );
   }
 
   return api.sendMessage(
-`╔════❖ INSTALL SUCCESS ❖════╗
-
-✅ Command Installed Successfully
-
-📁 File:
-${fileName}
-
-⚡ Status:
-Loaded Successfully
-
-━━━━━━━━━━━━━━━━━━
-👑 OWNER : SOHAN AHMED
-╚════════════════╝`,
+    `✅ Auto Reload Complete:\n📂 ${fileName}`,
     threadID,
     messageID
   );
