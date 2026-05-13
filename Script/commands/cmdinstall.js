@@ -5,80 +5,211 @@ const vm = require("vm");
 
 module.exports.config = {
   name: "install",
-  version: "2.0.0",
+  version: "3.0.0",
   hasPermssion: 2,
-  credits: "SHAHADAT SAHU",
-  description: "Create/Delete/Load modules",
+  credits: "SOHAN AHMED",
+  description: "Auto reply install system",
   commandCategory: "System",
-  usages: "[file.js code/link] / [del file.js]",
+  usages: "reply code with install filename.js",
   cooldowns: 0
 };
 
 const loadModule = (nameModule) => {
   try {
-    const p = __dirname + "/" + nameModule + ".js";
-    delete require.cache[require.resolve(p)];
-    const c = require(p);
-    if (!c.config || !c.run) throw new Error();
-    global.client.commands.delete(c.config.name);
-    global.client.eventRegistered = global.client.eventRegistered.filter(e => e != c.config.name);
-    global.client.commands.set(c.config.name, c);
+
+    const modulePath = __dirname + "/" + nameModule + ".js";
+
+    delete require.cache[require.resolve(modulePath)];
+
+    const command = require(modulePath);
+
+    if (!command.config || !command.run)
+      throw new Error("Invalid module");
+
+    global.client.commands.delete(command.config.name);
+
+    global.client.eventRegistered =
+      global.client.eventRegistered.filter(
+        item => item != command.config.name
+      );
+
+    global.client.commands.set(command.config.name, command);
+
     return true;
-  } catch {
+
+  } catch (e) {
+    console.log(e);
     return false;
   }
 };
 
 const unloadModule = (nameModule) => {
+
   global.client.commands.delete(nameModule);
-  global.client.eventRegistered = global.client.eventRegistered.filter(e => e !== nameModule);
+
+  global.client.eventRegistered =
+    global.client.eventRegistered.filter(
+      item => item !== nameModule
+    );
 };
 
-module.exports.run = async ({ api, event, args }) => {
-  const { threadID, messageID } = event;
+module.exports.run = async function ({ api, event, args }) {
 
-  if (!args[0]) return api.sendMessage("⚠️ Usage: install file.js code/link", threadID, messageID);
+  const { threadID, messageID, type, messageReply } = event;
 
-  if (args[0] === "del") {
+  // DELETE SYSTEM
+  if (args[0] == "del") {
+
     const file = args[1];
-    if (!file || !file.endsWith(".js")) return api.sendMessage("Invalid file.....", threadID, messageID);
-    const fp = path.join(__dirname, file);
-    if (!fs.existsSync(fp)) return api.sendMessage("File not found.....", threadID, messageID);
-    unloadModule(file.replace(".js", ""));
-    fs.unlinkSync(fp);
-    return api.sendMessage("🗑️ Deleted + Unloaded: " + file, threadID, messageID);
-  }
 
-  const fileName = args[0];
-  const content = args.slice(1).join(" ");
-  if (!fileName.endsWith(".js")) return api.sendMessage("Only .js allowed...⚠️", threadID, messageID);
-
-  const fp = path.join(__dirname, fileName);
-  if (fs.existsSync(fp)) return api.sendMessage("File already exists...⚠️", threadID, messageID);
-
-  let code;
-  if (/^(http|https):\/\//.test(content)) {
-    try {
-      const r = await axios.get(content);
-      code = r.data;
-    } catch {
-      return api.sendMessage("❌ Failed to download code!", threadID, messageID);
+    if (!file || !file.endsWith(".js")) {
+      return api.sendMessage(
+        "❌ Please enter valid file name",
+        threadID,
+        messageID
+      );
     }
-  } else {
-    code = content;
+
+    const filePath = path.join(__dirname, file);
+
+    if (!fs.existsSync(filePath)) {
+      return api.sendMessage(
+        "⚠️ File not found",
+        threadID,
+        messageID
+      );
+    }
+
+    unloadModule(file.replace(".js", ""));
+
+    fs.unlinkSync(filePath);
+
+    return api.sendMessage(
+`╔════❖ DELETE SUCCESS ❖════╗
+
+🗑️ File Deleted Successfully
+
+📁 File:
+${file}
+
+━━━━━━━━━━━━━━━━━━
+👑 OWNER : SOHAN AHMED
+╚════════════════╝`,
+      threadID,
+      messageID
+    );
   }
 
+  // INSTALL SYSTEM
+  const fileName = args[0];
+
+  if (!fileName || !fileName.endsWith(".js")) {
+    return api.sendMessage(
+      "⚠️ Example:\ninstall cmd.js",
+      threadID,
+      messageID
+    );
+  }
+
+  if (type != "message_reply") {
+    return api.sendMessage(
+      "⚠️ Please reply to command code",
+      threadID,
+      messageID
+    );
+  }
+
+  const filePath = path.join(__dirname, fileName);
+
+  if (fs.existsSync(filePath)) {
+    return api.sendMessage(
+      "⚠️ File already exists",
+      threadID,
+      messageID
+    );
+  }
+
+  let code = messageReply.body;
+
+  // LINK SUPPORT
+  if (/^(http|https):\/\//.test(code.trim())) {
+
+    try {
+
+      const response = await axios.get(code.trim());
+
+      code = response.data;
+
+    } catch {
+
+      return api.sendMessage(
+        "❌ Failed to download code",
+        threadID,
+        messageID
+      );
+    }
+  }
+
+  // CHECK SYNTAX
   try {
+
     new vm.Script(code);
+
   } catch (err) {
-    return api.sendMessage("❌ Syntax Error: " + err.message, threadID, messageID);
+
+    return api.sendMessage(
+`╔════❖ SYNTAX ERROR ❖════╗
+
+❌ ${err.message}
+
+━━━━━━━━━━━━━━━━━━
+⚡ INSTALL FAILED
+╚════════════════╝`,
+      threadID,
+      messageID
+    );
   }
 
-  fs.writeFileSync(fp, code, "utf8");
+  // SAVE FILE
+  fs.writeFileSync(filePath, code, "utf8");
 
-  const name = fileName.replace(".js", "");
-  const ok = loadModule(name);
-  if (!ok) return api.sendMessage("⚠️ File created but failed to load!", threadID, messageID);
+  // LOAD MODULE
+  const moduleName = fileName.replace(".js", "");
 
-  return api.sendMessage("✅ Successfully Created + Loaded: " + fileName, threadID, messageID);
+  const loaded = loadModule(moduleName);
+
+  if (!loaded) {
+
+    return api.sendMessage(
+`╔════❖ INSTALL FAILED ❖════╗
+
+⚠️ File Saved But Not Loaded
+
+📁 ${fileName}
+
+━━━━━━━━━━━━━━━━━━
+👑 SOHAN AHMED
+╚════════════════╝`,
+      threadID,
+      messageID
+    );
+  }
+
+  return api.sendMessage(
+`╔════❖ INSTALL SUCCESS ❖════╗
+
+✅ Command Installed Successfully
+
+📁 File:
+${fileName}
+
+⚡ Status:
+Loaded Successfully
+
+━━━━━━━━━━━━━━━━━━
+👑 OWNER : SOHAN AHMED
+╚════════════════╝`,
+    threadID,
+    messageID
+  );
 };
